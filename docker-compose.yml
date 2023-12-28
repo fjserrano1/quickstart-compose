@@ -1,107 +1,577 @@
-# version is now using "compose spec"
-# v2 and v3 are now combined!
-# docker-compose v1.27+ required
-
 services:
-  vote:
-    build: ./vote
-    # use python rather than gunicorn for local dev
-    command: wait-for-it --strict --timeout=60 redis:6379 -- python app.py
-    environment:
-      REDIS_HOST: "redis"
-    depends_on:
-      redis:
-        condition: service_healthy
-    volumes:
-     - ./vote:/app
-    ports:
-      - "5002:80"
-    networks:
-      - front-tier
-      - back-tier
-
-  result:
-    build: ./result
-    # use nodemon rather than node for local dev
-    command: nodemon server.js
-    environment:
-      PORT: "80"
-      PGUSER: "postgres"
-      PGHOST: "db"
-      PGPASSWORD: "postgres"
-      PGDATABASE: "postgres"
-    volumes:
-      - ./result:/app
-    ports:
-      - "5001:80"
-      - "5858:5858"
-    networks:
-      - front-tier
-      - back-tier
-
-  worker:
-    build:
-      context: ./worker
-    environment:
-      PGHOST: "db"
-      PGUSER: "postgres"
-      PGPASSWORD: "postgres"
-      REDIS_HOST: "redis"
-    depends_on:
-      redis:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-    networks:
-      - back-tier
-
   redis:
-    image: redis:5.0-alpine3.10
-    volumes:
-      - "./healthchecks:/healthchecks"
-    healthcheck:
-      test: /healthchecks/redis.sh
-      interval: "5s"
-    ports: ["6379"]
-    networks:
-      - back-tier
-
-  db:
-    image: postgres:9.4
-    environment:
-      POSTGRES_USER: "postgres"
-      POSTGRES_PASSWORD: "postgres"
-    volumes:
-      - "db-data:/var/lib/postgresql/data"
-      - "./healthchecks:/healthchecks"
-    healthcheck:
-      test: /healthchecks/postgres.sh
-      interval: "5s"
-    networks:
-      - back-tier
-
-  loadbalancer:
-    build:
-      context: ./loadbalancer
-    environment:
-      PORT: 8080
-      VOTE_HOST: "vote"
-      VOTE_PORT: "80"
-      RESULT_HOST: "result"
-      RESULT_PORT: "80"
-    depends_on:
-      redis:
-        condition: service_healthy
-      db:
-        condition: service_healthy
+    image: "redis:alpine"
+    hostname: redisInstance
     ports:
-      - "5000:8080"
+      - "6379:6379"
     networks:
-      - front-tier
+      - preview-net
 
-volumes:
-  db-data:
+  postgres-installations:
+    image: postgres:13.12
+    restart: always
+    ports:
+      - "5432:5432"
+    volumes:
+      # - ./data:/var/lib/postgresql/data - PARA DEBUGAR EN LOCAL
+      - ./init/installations:/docker-entrypoint-initdb.d # - PONER AQUÍ EL DUMP DE LA BBDD
+    environment:
+      - POSTGRES_USER=opendit
+      - POSTGRES_PASSWORD=Op3ndit2021-
+      - POSTGRES_DB=installations
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    networks:
+      - preview-net
+
+  postgres-keycloak:
+    image: postgres:13.12
+    restart: always
+    ports:
+      - "5433:5432"
+    volumes:
+      # - ./data:/var/lib/postgresql/data #- PARA DEBUGAR EN LOCAL
+      - ./init/keycloak:/docker-entrypoint-initdb.d # - PONER AQUÍ EL DUMP DE LA BBDD
+    environment:
+      - POSTGRES_USER=opendit
+      - POSTGRES_PASSWORD=Odit2021-
+      - POSTGRES_DB=keycloak
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    networks:
+      - preview-net
+
+  postgres-pairings:
+    image: postgres:13.12
+    restart: always
+    ports:
+      - "5434:5432"
+    volumes:
+      # - ./data:/var/lib/postgresql/data - PARA DEBUGAR EN LOCAL
+      - ./init/pairings:/docker-entrypoint-initdb.d # - PONER AQUÍ EL DUMP DE LA BBDD
+    environment:
+      - POSTGRES_USER=opendit
+      - POSTGRES_PASSWORD=Op3ndit2021-
+      - POSTGRES_DB=pairings
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    networks:
+      - preview-net
+
+  postgres-push:
+    image: postgres:13.12
+    restart: always
+    ports:
+      - "5435:5432"
+    volumes:
+      # - ./data:/var/lib/postgresql/data - PARA DEBUGAR EN LOCAL
+      - ./init/push:/docker-entrypoint-initdb.d # - PONER AQUÍ EL DUMP DE LA BBDD
+    environment:
+      - POSTGRES_USER=opendit
+      - POSTGRES_PASSWORD=Op3ndit2021-
+      - POSTGRES_DB=push
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    networks:
+      - preview-net
+
+  postgres-subscriptions:
+    image: postgres:13.12
+    restart: always
+    ports:
+      - "5436:5432"
+    volumes:
+      # - ./data:/var/lib/postgresql/data - PARA DEBUGAR EN LOCAL
+      - ./init/subscriptions:/docker-entrypoint-initdb.d # - PONER AQUÍ EL DUMP DE LA BBDD
+    environment:
+      - POSTGRES_USER=opendit
+      - POSTGRES_PASSWORD=Op3ndit2021-
+      - POSTGRES_DB=subscriptions
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    networks:
+      - preview-net
+
+  postgres-zone-events:
+    image: postgres:13.12
+    restart: always
+    ports:
+      - "5437:5432"
+    volumes:
+      # - ./data:/var/lib/postgresql/data # - PARA DEBUGAR EN LOCAL
+      - ./init/zone-events:/docker-entrypoint-initdb.d # - PONER AQUÍ EL DUMP DE LA BBDD
+    environment:
+      - POSTGRES_USER=opendit
+      - POSTGRES_PASSWORD=Op3ndit2021-
+      - POSTGRES_DB=zone-events
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    networks:
+      - preview-net
+
+  mongo-devices:
+    image: mongo:6-jammy
+    restart: always
+    ports:
+      - '10255:27017'
+    environment:
+        - MONGO_INITDB_ROOT_USERNAME=opendit
+        - MONGO_INITDB_ROOT_PASSWORD=opendit
+    # entrypoint: ["mongod", "--dbpath", "/data/db", "--shutdown", "|", "mongod", "--config", "/data/config/ssl.conf"]
+    # command: ["/usr/bin/mongorestore", "./docker-entrypoint-initdb.d/dump"]
+    volumes:
+      #- ./datamongo:/data/db
+      - ./init/devices:/docker-entrypoint-initdb.d
+      - ./init/devices/config:/data/config
+    #  - ./init/devices/config/ssl.conf:/etc/mongod.conf
+    networks:
+      - preview-net
+
+  ca-installations:
+    image: openditbackend.azurecr.io/installations:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+    command: ["java","-javaagent:agent.jar","-jar","/ms.jar",
+              "--spring.datasource.url=jdbc:p6spy:postgresql://postgres-installations:5432/installations"]
+    depends_on:
+      - postgres-installations
+    networks:
+      - preview-net
+
+  ca-installations-dapr:
+      image: "daprio/daprd:latest"
+      command: [ "./daprd", "--app-id", "ca-installations", "--app-port", "8080", "--resources-path", "/components" ]
+      volumes:
+        - "./components/:/components"
+      depends_on:
+        - ca-installations
+        - redis
+      network_mode: "service:ca-installations"
+
+  ca-app:
+    image: openditbackend.azurecr.io/app:latest
+    ports:
+      - "8081:8080"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+      - PREEVY_BASE_URI_CA_TRAEFIK_80=${PREEVY_BASE_URI_CA_TRAEFIK_80}
+      # - LOGGING_LEVEL_ROOT=DEBUG
+    entrypoint: [ "java","-javaagent:agent.jar","-jar","/ms.jar",
+                  "--keycloak.realmEndpoint=${PREEVY_BASE_URI_CA_TRAEFIK_80}auth/realms/opendit",
+                  "--keycloak.urlKeycloak=${PREEVY_BASE_URI_CA_TRAEFIK_80}auth"]
+    networks:
+      - preview-net
+
+  ca-app-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-app", "--app-port", "8080", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-app
+      - redis
+    network_mode: "service:ca-app"
+
+  ca-portal:
+    image: openditbackend.azurecr.io/portal:latest
+    ports:
+      - "8082:8080"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+    networks:
+      - preview-net
+
+  ca-portal-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-portal", "--app-port", "8080", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-portal
+      - redis
+    network_mode: "service:ca-portal"
+
+
+  ca-call-manager:
+    image: openditbackend.azurecr.io/call-manager:latest
+    ports:
+      - "8083:3000"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+      - AZURE_KEYVAULT_STORE=https://https://kv-opendit-secrets-pro.vault.azure.net
+      - opendit.logLevels.0=verbose
+    networks:
+      - preview-net
+
+  ca-call-manager-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-call-manager", "--app-port", "3000", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-call-manager
+      - redis
+    network_mode: "service:ca-call-manager"
+
+  ca-devices:
+    image: openditbackend.azurecr.io/devices:latest
+    restart: always
+    ports:
+      - "8084:3000"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+      - AZURE_KEYVAULT_STORE=https://https://kv-opendit-secrets-pro.vault.azure.net
+      - MONGODB_EXTRA_FLAGS=--ssl=false
+      - opendit.mongo.host=mongo-devices
+      - opendit.mongo.username=opendit
+      - opendit.mongo.password=opendit
+      - opendit.mongo.port=27017
+      - opendit.mongo.extraOptions=?ssl=false&authSource=admin
+    depends_on:
+      - mongo-devices
+    networks:
+      - preview-net
+
+  ca-devices-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-devices", "--app-port", "3000", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-devices
+      - redis
+    network_mode: "service:ca-devices"
+
+  ca-devices-ingest:
+    image: openditbackend.azurecr.io/devices-ingest:latest
+    ports:
+      - "8085:3000"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+      - AZURE_KEYVAULT_STORE=https://https://kv-opendit-secrets-pro.vault.azure.net
+      - MONGODB_EXTRA_FLAGS=--ssl=false
+      - opendit.mongo.host=mongo-devices
+      - opendit.mongo.username=opendit
+      - opendit.mongo.password=opendit
+      - opendit.mongo.port=27017
+      - opendit.mongo.extraOptions=?ssl=false&authSource=admin
+    networks:
+      - preview-net
+
+  ca-devices-ingest-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-devices-ingest", "--app-port", "3000", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-devices-ingest
+      - redis
+    network_mode: "service:ca-devices-ingest"
+
+  ca-email:
+    image: openditbackend.azurecr.io/email:latest
+    ports:
+      - "8094:8080"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+    networks:
+      - preview-net
+
+  ca-email-dapr:
+      image: "daprio/daprd:latest"
+      command: [ "./daprd", "--app-id", "ca-email", "--app-port", "8080", "--resources-path", "/components" ]
+      volumes:
+        - "./components/:/components"
+      depends_on:
+        - ca-email
+        - redis
+      network_mode: "service:ca-email"
+
+  ca-fermax:
+    image: openditbackend.azurecr.io/fermax:latest
+    ports:
+      - "8086:8080"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+    networks:
+      - preview-net
+
+  ca-fermax-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-fermax", "--app-port", "8080", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-fermax
+      - redis
+    network_mode: "service:ca-fermax"
+
+
+  ca-keycloak:
+    image: openditbackend.azurecr.io/keycloak:latest
+    ports:
+      - "8087:8080"
+    environment:
+      - KC_DB_PASSWORD=Odit2021-
+      - KC_DB_URL=jdbc:postgresql://postgres-keycloak:5432/keycloak
+      - KC_DB_USERNAME=opendit
+      - KC_HOSTNAME_ADMIN_URL=${PREEVY_BASE_URI_CA_TRAEFIK_80}auth
+      - KC_HOSTNAME_STRICT_BACKCHANNEL=false
+      - KC_HOSTNAME_URL=${PREEVY_BASE_URI_CA_TRAEFIK_80}auth
+      - EMAIL_SERVICE_URL=${PREEVY_BASE_URI_CA_EMAIL_8080}email/send
+      - VERIFY_EMAIL_TEMPLATE_ID=d-11a78d295ed74bda9b95d3fc27c21df6
+      - UPDATE_PASSWORD_TEMPLATE_ID=d-fbdfbfb1dd384ae5b4885ac701e38d5b
+      - EMAIL_VERIFICATION_CODE_LENGTH=6
+      - KC_HTTPS_KEY_STORE_PASSWORD=Odit2021-
+      - KC_HEALTH_ENABLED=true
+      #- QUARKUS_HTTP_ACCESS_LOG_ENABLED=true
+      #- QUARKUS_HTTP_ACCESS_LOG_PATTERN="%r\n%{ALL_REQUEST_HEADERS}"
+      #- KEYCLOAK_LOGLEVEL=DEBUG
+    depends_on:
+      - postgres-keycloak
+    networks:
+      - preview-net
+
+  ca-pairings:
+    image: openditbackend.azurecr.io/pairings:latest
+    ports:
+      - "8088:8080"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+    command: ["java","-javaagent:agent.jar","-jar","/ms.jar",
+              "--spring.datasource.url=jdbc:p6spy:postgresql://postgres-pairings:5432/pairings"]
+    depends_on:
+      - postgres-pairings
+    networks:
+      - preview-net
+
+  ca-pairings-dapr:
+      image: "daprio/daprd:latest"
+      command: [ "./daprd", "--app-id", "ca-pairings", "--app-port", "8080", "--resources-path", "/components" ]
+      volumes:
+        - "./components/:/components"
+      depends_on:
+        - ca-pairings
+        - redis
+      network_mode: "service:ca-pairings"
+
+  ca-push:
+    image: openditbackend.azurecr.io/push:latest
+    ports:
+      - "8089:8080"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+    command: ["java","-javaagent:agent.jar","-jar","/ms.jar",
+              "--spring.datasource.url=jdbc:p6spy:postgresql://postgres-push:5432/push"]
+    depends_on:
+      - postgres-push
+    networks:
+      - preview-net
+
+  ca-push-dapr:
+      image: "daprio/daprd:latest"
+      command: [ "./daprd", "--app-id", "ca-push", "--app-port", "8080", "--resources-path", "/components" ]
+      volumes:
+        - "./components/:/components"
+      depends_on:
+        - ca-push
+        - redis
+      network_mode: "service:ca-push"
+
+
+  ca-subscriptions:
+    image: openditbackend.azurecr.io/subscriptions:latest
+    restart: always
+    ports:
+      - "8090:3000"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+      - AZURE_KEYVAULT_STORE=https://https://kv-opendit-secrets-pro.vault.azure.net
+      - opendit.database.url=jdbc:postgresql://postgres-subscriptions:5432
+      - opendit.database.username=opendit
+      - opendit.database.password=Op3ndit2021-
+    depends_on:
+      - postgres-subscriptions
+    networks:
+      - preview-net
+
+  ca-subscriptions-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-subscriptions", "--app-port", "3000", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-subscriptions
+      - redis
+    network_mode: "service:ca-subscriptions"
+
+  ca-user-identity:
+    image: openditbackend.azurecr.io/user-identity:latest
+    ports:
+      - "8091:8080"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+      - PREEVY_BASE_URI_CA_TRAEFIK_80=${PREEVY_BASE_URI_CA_TRAEFIK_80}
+      #- LOGGING_LEVEL_ROOT=TRACE
+      #- LOGGING_LEVEL_COM_OPENDIT=TRACE
+    entrypoint: [ "java","-javaagent:agent.jar","-jar","/ms.jar",
+               "--keycloak.realmEndpoint=${PREEVY_BASE_URI_CA_TRAEFIK_80}auth/realms/opendit",
+               "--keycloak.urlKeycloak=${PREEVY_BASE_URI_CA_TRAEFIK_80}auth"]
+    networks:
+      - preview-net
+
+  ca-user-identity-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-user-identity", "--app-port", "8080", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-user-identity
+      - redis
+    network_mode: "service:ca-user-identity"
+
+  ca-webhooks:
+    image:  openditbackend.azurecr.io/webhooks:latest
+    ports:
+      - "8092:3000"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+      - AZURE_KEYVAULT_STORE=https://https://kv-opendit-secrets-pro.vault.azure.net
+    networks:
+      - preview-net
+
+  ca-webhooks-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-webhooks", "--app-port", "3000", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-webhooks
+      - redis
+    network_mode: "service:ca-webhooks"
+
+  ca-wsapp:
+    image:  openditbackend.azurecr.io/wsapp:latest
+    ports:
+      - "8093:3000"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+      - AZURE_KEYVAULT_STORE=https://https://kv-opendit-secrets-pro.vault.azure.net
+    networks:
+      - preview-net
+
+  ca-wsapp-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-wsapp", "--app-port", "3000", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-wsapp
+      - redis
+    network_mode: "service:ca-wsapp"
+
+  ca-zone-events:
+    image: openditbackend.azurecr.io/zone-events:latest
+    restart: always
+    ports:
+      - "8095:3000"
+    environment:
+      - AZURE_CLIENT_ID=c9c08c27-1844-44ca-9d36-9ae6041a8b3e
+      - AZURE_CLIENT_SECRET=KkR8Q~2QMFz6gtbDfQTkNTF9z8PN5jfeGwIjScYh
+      - AZURE_TENANT_ID=dfdeb005-c9db-470f-933a-4cef9bd0a5b5
+      - AZURE_CONFIGURATION_STORE=https://cs-opendit-config-pro.azconfig.io
+      - AZURE_KEYVAULT_STORE=https://https://kv-opendit-secrets-pro.vault.azure.net
+      - opendit.database.url=jdbc:postgresql://postgres-zone-events:5432
+      - opendit.database.username=opendit
+      - opendit.database.password=Op3ndit2021-
+    depends_on:
+      - postgres-zone-events
+    networks:
+      - preview-net
+
+  ca-zone-events-dapr:
+    image: "daprio/daprd:latest"
+    command: [ "./daprd", "--app-id", "ca-zone-events", "--app-port", "3000", "--resources-path", "/components" ]
+    volumes:
+      - "./components/:/components"
+    depends_on:
+      - ca-zone-events
+      - redis
+    network_mode: "service:ca-zone-events"
+
+  ca-traefik:
+    image: openditbackend.azurecr.io/traefik:latest
+    restart: always
+    environment:
+      - PREEVY_BASE_URI_CA_APP_8080=${PREEVY_BASE_URI_CA_APP_8080}
+      - PREEVY_BASE_URI_CA_PORTAL_8080=${PREEVY_BASE_URI_CA_PORTAL_8080}
+      - PREEVY_BASE_URI_CA_KEYCLOAK_8080=${PREEVY_BASE_URI_CA_KEYCLOAK_8080}
+      - PREEVY_BASE_URI_CA_WEBHOOKS_3000=${PREEVY_BASE_URI_CA_WEBHOOKS_3000}
+      - PREEVY_BASE_URI_CA_WSAPP_3000=${PREEVY_BASE_URI_CA_WSAPP_3000}
+      - PREEVY_BASE_URI_PORTAL_FRONT_5000=${PREEVY_BASE_URI_PORTAL_FRONT_5000}
+    ports:
+      - "80:80"
+    volumes:
+      - "./traefik/:/etc/traefik/"
+    networks:
+      - preview-net
+
+  portal-front:
+    image: openditbackend.azurecr.io/opendit-portal:1.5.0
+    restart: always
+    ports:
+      - "4000:5000"
+    networks:
+      - preview-net
+
+#    environment:
+#      - CLIENT_KEY=b3BlbmRpdC1wb3J0YWw6UGNmSHFnRkkwQ0p5M0ZqUFN6SjV2aE9zb0lXOHp5RkU=
+#      - BASE_PORTAL_URL=https://dev.opendit.io/portal
+#      - BASE_APP_URL=https://dev.opendit.io/app/
+#      - BASE_APP_TOKEN=b3BlbmRpdC1hcHA6R0pWc1pId1VEVG96dkFDT2ZUeTVTbXdXUUdQQXdWbGU=
+#      - BASE_ADDRESS_API_URL=https://atlas.microsoft.com/search/address/
+#      - BASE_ADDRESS_API_TOKEN=BX20yeZywGjTk_q96Za0pziOo0QIP27cJI1Gb4V8Olo
+    entrypoint: ["node",".output/server/index.mjs"]
+
 
 networks:
-  front-tier:
-  back-tier:
+  preview-net:
+    driver: bridge
